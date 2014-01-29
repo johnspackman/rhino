@@ -1,51 +1,8 @@
 /* -*- Mode: java; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
  *
- * ***** BEGIN LICENSE BLOCK *****
- * Version: MPL 1.1/GPL 2.0
- *
- * The contents of this file are subject to the Mozilla Public License Version
- * 1.1 (the "License"); you may not use this file except in compliance with
- * the License. You may obtain a copy of the License at
- * http://www.mozilla.org/MPL/
- *
- * Software distributed under the License is distributed on an "AS IS" basis,
- * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
- * for the specific language governing rights and limitations under the
- * License.
- *
- * The Original Code is Rhino code, released
- * May 6, 1999.
- *
- * The Initial Developer of the Original Code is
- * Netscape Communications Corporation.
- * Portions created by the Initial Developer are Copyright (C) 1997-1999
- * the Initial Developer. All Rights Reserved.
- *
- * Contributor(s):
- *   Mike Ang
- *   Norris Boyd
- *   Igor Bukanov
- *   Yuh-Ruey Chen
- *   Travis Ennis
- *   Ethan Hugg
- *   Bob Jervis
- *   Terry Lucas
- *   Mike McCabe
- *   Milen Nankov
- *   Hannes Wallnoefer
- *   Steve Yegge
- *
- * Alternatively, the contents of this file may be used under the terms of
- * the GNU General Public License Version 2 or later (the "GPL"), in which
- * case the provisions of the GPL are applicable instead of those above. If
- * you wish to allow use of your version of this file only under the terms of
- * the GPL and not to allow others to use your version of this file under the
- * MPL, indicate your decision by deleting the provisions above and replacing
- * them with the notice and other provisions required by the GPL. If you do
- * not delete the provisions above, a recipient may use your version of this
- * file under either the MPL or the GPL.
- *
- * ***** END LICENSE BLOCK ***** */
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 package org.mozilla.javascript;
 
@@ -111,7 +68,7 @@ public class Parser
     private int syntaxErrorCount;
 
     private List<Comment> scannedComments;
-    private String currentJsDocComment;
+    private Comment currentJsDocComment;
 
     protected int nestingOfFunction;
     private LabeledStatement currentLabel;
@@ -277,28 +234,39 @@ public class Parser
         return n.getPosition() + n.getLength();
     }
 
-    private void recordComment(int lineno) {
+    private void recordComment(int lineno, String comment) {
         if (scannedComments == null) {
             scannedComments = new ArrayList<Comment>();
-        }
-        String comment = ts.getAndResetCurrentComment();
-        if (ts.commentType == Token.CommentType.JSDOC &&
-            compilerEnv.isRecordingLocalJsDocComments()) {
-            currentJsDocComment = comment;
         }
         Comment commentNode = new Comment(ts.tokenBeg,
                                           ts.getTokenLength(),
                                           ts.commentType,
                                           comment);
+        if (ts.commentType == Token.CommentType.JSDOC &&
+            compilerEnv.isRecordingLocalJsDocComments()) {
+            currentJsDocComment = commentNode;
+        }
         commentNode.setLineno(lineno);
         scannedComments.add(commentNode);
     }
 
-    private String getAndResetJsDoc() {
-        String saved = currentJsDocComment;
+    private Comment getAndResetJsDoc() {
+        Comment saved = currentJsDocComment;
         currentJsDocComment = null;
         return saved;
     }
+
+
+    private int getNumberOfEols(String comment) {
+      int lines = 0;
+      for (int i = comment.length()-1; i >= 0; i--) {
+        if (comment.charAt(i) == '\n') {
+          lines++;
+        }
+      }
+      return lines;
+    }
+
 
     // Returns the next token without consuming it.
     // If previous token was consumed, calls scanner to get new token.
@@ -335,7 +303,11 @@ public class Parser
                 sawEOL = true;
             } else {
                 if (compilerEnv.isRecordingComments()) {
-                    recordComment(lineno);
+                    String comment = ts.getAndResetCurrentComment();
+                    recordComment(lineno, comment);
+                    // Comments may contain multiple lines, get the number
+                    // of EoLs and increase the lineno
+                    lineno += getNumberOfEols(comment);
                 }
             }
             tt = ts.getToken();
@@ -815,7 +787,7 @@ public class Parser
         if (lpPos != -1)
             fnNode.setLp(lpPos - functionSourceStart);
 
-        fnNode.setJsDoc(getAndResetJsDoc());
+        fnNode.setJsDocNode(getAndResetJsDoc());
 
         PerFunctionVariables savedVars = new PerFunctionVariables(fnNode);
         try {
@@ -1383,7 +1355,7 @@ public class Parser
         consumeToken();
 
         // Pull out JSDoc info and reset it before recursing.
-        String jsdoc = getAndResetJsDoc();
+        Comment jsdocNode = getAndResetJsDoc();
 
         int tryPos = ts.tokenBeg, lineno = ts.lineno, finallyPos = -1;
         if (peekToken() != Token.LC) {
@@ -1468,8 +1440,8 @@ public class Parser
         }
         pn.setLineno(lineno);
 
-        if (jsdoc != null) {
-            pn.setJsDoc(jsdoc);
+        if (jsdocNode != null) {
+            pn.setJsDocNode(jsdocNode);
         }
 
         return pn;
@@ -1593,6 +1565,9 @@ public class Parser
     {
         if (currentToken != Token.WITH) codeBug();
         consumeToken();
+
+        Comment withComment = getAndResetJsDoc();
+
         int lineno = ts.lineno, pos = ts.tokenBeg, lp = -1, rp = -1;
         if (mustMatchToken(Token.LP, "msg.no.paren.with"))
             lp = ts.tokenBeg;
@@ -1605,7 +1580,7 @@ public class Parser
         AstNode body = statement();
 
         WithStatement pn = new WithStatement(pos, getNodeEnd(body) - pos);
-        pn.setJsDoc(getAndResetJsDoc());
+        pn.setJsDocNode(withComment);
         pn.setExpression(obj);
         pn.setStatement(body);
         pn.setParens(lp, rp);
@@ -1851,9 +1826,9 @@ public class Parser
         VariableDeclaration pn = new VariableDeclaration(pos);
         pn.setType(declType);
         pn.setLineno(ts.lineno);
-        String varjsdoc = getAndResetJsDoc();
-        if (varjsdoc != null) {
-            pn.setJsDoc(varjsdoc);
+        Comment varjsdocNode = getAndResetJsDoc();
+        if (varjsdocNode != null) {
+            pn.setJsDocNode(varjsdocNode);
         }
         // Example:
         // var foo = {a: 1, b: 2}, bar = [3, 4];
@@ -1888,7 +1863,7 @@ public class Parser
 
             int lineno = ts.lineno;
 
-            String jsdoc = getAndResetJsDoc();
+            Comment jsdocNode = getAndResetJsDoc();
 
             AstNode init = null;
             if (matchToken(Token.ASSIGN)) {
@@ -1907,7 +1882,7 @@ public class Parser
             }
             vi.setInitializer(init);
             vi.setType(declType);
-            vi.setJsDoc(jsdoc);
+            vi.setJsDocNode(jsdocNode);
             vi.setLineno(lineno);
             pn.addVariable(vi);
 
@@ -2037,7 +2012,6 @@ public class Parser
         AstNode pn = assignExpr();
         int pos = pn.getPosition();
         while (matchToken(Token.COMMA)) {
-            int lineno = ts.lineno;
             int opPos = ts.tokenBeg;
             if (compilerEnv.isStrictMode() && !pn.hasSideEffects())
                 addStrictWarning("msg.no.side.effects", "",
@@ -2045,7 +2019,6 @@ public class Parser
             if (peekToken() == Token.YIELD)
                 reportError("msg.yield.parenthesized");
             pn = new InfixExpression(Token.COMMA, pn, assignExpr(), opPos);
-            pn.setLineno(lineno);
         }
         return pn;
     }
@@ -2063,23 +2036,21 @@ public class Parser
             consumeToken();
 
             // Pull out JSDoc info and reset it before recursing.
-            String jsdoc = getAndResetJsDoc();
+            Comment jsdocNode = getAndResetJsDoc();
 
             markDestructuring(pn);
             int opPos = ts.tokenBeg;
-            int opLineno = ts.getLineno();
 
             pn = new Assignment(tt, pn, assignExpr(), opPos);
 
-            pn.setLineno(opLineno);
-            if (jsdoc != null) {
-                pn.setJsDoc(jsdoc);
+            if (jsdocNode != null) {
+                pn.setJsDocNode(jsdocNode);
             }
-        } else if (tt == Token.SEMI && pn.getType() == Token.GETPROP) {
+        } else if (tt == Token.SEMI) {
             // This may be dead code added intentionally, for JSDoc purposes.
             // For example: /** @type Number */ C.prototype.x;
             if (currentJsDocComment != null) {
-                pn.setJsDoc(getAndResetJsDoc());
+                pn.setJsDocNode(getAndResetJsDoc());
             }
         }
         return pn;
@@ -2092,7 +2063,19 @@ public class Parser
         if (matchToken(Token.HOOK)) {
             int line = ts.lineno;
             int qmarkPos = ts.tokenBeg, colonPos = -1;
-            AstNode ifTrue = assignExpr();
+            /*
+             * Always accept the 'in' operator in the middle clause of a ternary,
+             * where it's unambiguous, even if we might be parsing the init of a
+             * for statement.
+             */
+            boolean wasInForInit = inForInit;
+            inForInit = false;
+            AstNode ifTrue;
+            try {
+                ifTrue = assignExpr();
+            } finally {
+                inForInit = wasInForInit;
+            }
             if (mustMatchToken(Token.COLON, "msg.no.colon.cond"))
                 colonPos = ts.tokenBeg;
             AstNode ifFalse = assignExpr();
@@ -2115,9 +2098,7 @@ public class Parser
         AstNode pn = andExpr();
         if (matchToken(Token.OR)) {
             int opPos = ts.tokenBeg;
-            int lineno = ts.lineno;
             pn = new InfixExpression(Token.OR, pn, orExpr(), opPos);
-            pn.setLineno(lineno);
         }
         return pn;
     }
@@ -2128,9 +2109,7 @@ public class Parser
         AstNode pn = bitOrExpr();
         if (matchToken(Token.AND)) {
             int opPos = ts.tokenBeg;
-            int lineno = ts.lineno;
             pn = new InfixExpression(Token.AND, pn, andExpr(), opPos);
-            pn.setLineno(lineno);
         }
         return pn;
     }
@@ -2141,9 +2120,7 @@ public class Parser
         AstNode pn = bitXorExpr();
         while (matchToken(Token.BITOR)) {
             int opPos = ts.tokenBeg;
-            int lineno = ts.lineno;
             pn = new InfixExpression(Token.BITOR, pn, bitXorExpr(), opPos);
-            pn.setLineno(lineno);
         }
         return pn;
     }
@@ -2154,9 +2131,7 @@ public class Parser
         AstNode pn = bitAndExpr();
         while (matchToken(Token.BITXOR)) {
             int opPos = ts.tokenBeg;
-            int lineno = ts.lineno;
             pn = new InfixExpression(Token.BITXOR, pn, bitAndExpr(), opPos);
-            pn.setLineno(lineno);
         }
         return pn;
     }
@@ -2167,9 +2142,7 @@ public class Parser
         AstNode pn = eqExpr();
         while (matchToken(Token.BITAND)) {
             int opPos = ts.tokenBeg;
-            int lineno = ts.lineno;
             pn = new InfixExpression(Token.BITAND, pn, eqExpr(), opPos);
-            pn.setLineno(lineno);
         }
         return pn;
     }
@@ -2180,7 +2153,6 @@ public class Parser
         AstNode pn = relExpr();
         for (;;) {
             int tt = peekToken(), opPos = ts.tokenBeg;
-            int lineno = ts.lineno;
             switch (tt) {
               case Token.EQ:
               case Token.NE:
@@ -2196,7 +2168,6 @@ public class Parser
                         parseToken = Token.SHNE;
                 }
                 pn = new InfixExpression(parseToken, pn, relExpr(), opPos);
-                pn.setLineno(lineno);
                 continue;
             }
             break;
@@ -2210,7 +2181,6 @@ public class Parser
         AstNode pn = shiftExpr();
         for (;;) {
             int tt = peekToken(), opPos = ts.tokenBeg;
-            int line = ts.lineno;
             switch (tt) {
               case Token.IN:
                 if (inForInit)
@@ -2223,7 +2193,6 @@ public class Parser
               case Token.GT:
                 consumeToken();
                 pn = new InfixExpression(tt, pn, shiftExpr(), opPos);
-                pn.setLineno(line);
                 continue;
             }
             break;
@@ -2237,14 +2206,12 @@ public class Parser
         AstNode pn = addExpr();
         for (;;) {
             int tt = peekToken(), opPos = ts.tokenBeg;
-            int lineno = ts.lineno;
             switch (tt) {
               case Token.LSH:
               case Token.URSH:
               case Token.RSH:
                 consumeToken();
                 pn = new InfixExpression(tt, pn, addExpr(), opPos);
-                pn.setLineno(lineno);
                 continue;
             }
             break;
@@ -2260,9 +2227,7 @@ public class Parser
             int tt = peekToken(), opPos = ts.tokenBeg;
             if (tt == Token.ADD || tt == Token.SUB) {
                 consumeToken();
-                int lineno = ts.lineno;
                 pn = new InfixExpression(tt, pn, mulExpr(), opPos);
-                pn.setLineno(lineno);
                 continue;
             }
             break;
@@ -2281,9 +2246,7 @@ public class Parser
               case Token.DIV:
               case Token.MOD:
                 consumeToken();
-                int line = ts.lineno;
                 pn = new InfixExpression(tt, pn, unaryExpr(), opPos);
-                pn.setLineno(line);
                 continue;
             }
             break;
@@ -2603,7 +2566,13 @@ public class Parser
         }
 
         if (!compilerEnv.isXmlAvailable()) {
-            mustMatchToken(Token.NAME, "msg.no.name.after.dot");
+            int maybeName = nextToken();
+            if (maybeName != Token.NAME
+                    && !(compilerEnv.isReservedKeywordAsIdentifier()
+                    && TokenStream.isKeyword(ts.getString()))) {
+              reportError("msg.no.name.after.dot");
+            }
+
             Name name = createNameNode(true, Token.GETPROP);
             PropertyGet pg = new PropertyGet(pn, name, dotPos);
             pg.setLineno(lineno);
@@ -2659,7 +2628,7 @@ public class Parser
         result.setPosition(pos);
         result.setLength(getNodeEnd(ref) - pos);
         result.setOperatorPosition(dotPos - pos);
-        result.setLineno(lineno);
+        result.setLineno(pn.getLineno());
         result.setLeft(pn);  // do this after setting position
         result.setRight(ref);
         return result;
@@ -2876,7 +2845,7 @@ public class Parser
         boolean wasInForInit = inForInit;
         inForInit = false;
         try {
-            String jsdoc = getAndResetJsDoc();
+            Comment jsdocNode = getAndResetJsDoc();
             int lineno = ts.lineno;
             int begin = ts.tokenBeg;
             AstNode e = expr();
@@ -2884,11 +2853,11 @@ public class Parser
                 return generatorExpression(e, begin);
             }
             ParenthesizedExpression pn = new ParenthesizedExpression(e);
-            if (jsdoc == null) {
-                jsdoc = getAndResetJsDoc();
+            if (jsdocNode == null) {
+                jsdocNode = getAndResetJsDoc();
             }
-            if (jsdoc != null) {
-                pn.setJsDoc(jsdoc);
+            if (jsdocNode != null) {
+                pn.setJsDocNode(jsdocNode);
             }
             mustMatchToken(Token.RP, "msg.no.paren");
             pn.setLength(ts.tokenEnd - pn.getPosition());
@@ -3078,7 +3047,7 @@ public class Parser
         }
     }
 
-    private AstNode generatorExpression(AstNode result, int pos) 
+    private AstNode generatorExpression(AstNode result, int pos)
         throws IOException
     {
         return generatorExpression(result, pos, false);
@@ -3168,58 +3137,70 @@ public class Parser
         }
     }
 
+    private static final int PROP_ENTRY = 1;
+    private static final int GET_ENTRY  = 2;
+    private static final int SET_ENTRY  = 4;
+
     private ObjectLiteral objectLiteral()
         throws IOException
     {
         int pos = ts.tokenBeg, lineno = ts.lineno;
         int afterComma = -1;
         List<ObjectProperty> elems = new ArrayList<ObjectProperty>();
-        Set<String> propertyNames = new HashSet<String>();
+        Set<String> getterNames = null;
+        Set<String> setterNames = null;
+        if (this.inUseStrictDirective) {
+            getterNames = new HashSet<String>();
+            setterNames = new HashSet<String>();
+        }
+        Comment objJsdocNode = getAndResetJsDoc();
 
       commaLoop:
         for (;;) {
             String propertyName = null;
+            int entryKind = PROP_ENTRY;
             int tt = peekToken();
-            String jsdoc = getAndResetJsDoc();
+            Comment jsdocNode = getAndResetJsDoc();
             switch(tt) {
               case Token.NAME:
-              case Token.STRING:
-                  saveNameTokenData(ts.tokenBeg, ts.getString(), ts.lineno);
-                  consumeToken();
-                  StringLiteral stringProp = null;
-                  if (tt == Token.STRING) {
-                      stringProp = createStringLiteral();
-                  }
                   Name name = createNameNode();
                   propertyName = ts.getString();
                   int ppos = ts.tokenBeg;
-
-                  if ((tt == Token.NAME
-                       && (peekToken() == Token.NAME || convertToName(peekToken()))
-                       && ("get".equals(propertyName) || "set".equals(propertyName))))
-                  {
-                      consumeToken();
-                      name = createNameNode();
-                      name.setJsDoc(jsdoc);
-                      ObjectProperty objectProp = getterSetterProperty(ppos, name,
-                                                     "get".equals(propertyName));
-                      elems.add(objectProp);
-                      propertyName = objectProp.getLeft().getString();
-                  } else {
-                      AstNode pname = stringProp != null ? stringProp : name;
-                      pname.setJsDoc(jsdoc);
-                      elems.add(plainProperty(pname, tt));
-                  }
-                  break;
-
-              case Token.NUMBER:
                   consumeToken();
-                  AstNode nl = new NumberLiteral(ts.tokenBeg,
-                                                 ts.getString(),
-                                                 ts.getNumber());
-                  nl.setJsDoc(jsdoc);
-                  propertyName = ts.getString();
-                  elems.add(plainProperty(nl, tt));
+
+                  // This code path needs to handle both destructuring object
+                  // literals like:
+                  // var {get, b} = {get: 1, b: 2};
+                  // and getters like:
+                  // var x = {get 1() { return 2; };
+                  // So we check a whitelist of tokens to check if we're at the
+                  // first case. (Because of keywords, the second case may be
+                  // many tokens.)
+                  int peeked = peekToken();
+                  boolean maybeGetterOrSetter =
+                          "get".equals(propertyName)
+                          || "set".equals(propertyName);
+                  if (maybeGetterOrSetter
+                          && peeked != Token.COMMA
+                          && peeked != Token.COLON
+                          && peeked != Token.RC)
+                  {
+                      boolean isGet = "get".equals(propertyName);
+                      entryKind = isGet ? GET_ENTRY : SET_ENTRY;
+                      AstNode pname = objliteralProperty();
+                      if (pname == null) {
+                          propertyName = null;
+                      } else {
+                          propertyName = ts.getString();
+                          ObjectProperty objectProp = getterSetterProperty(
+                                  ppos, pname, isGet);
+                          pname.setJsDocNode(jsdocNode);
+                          elems.add(objectProp);
+                      }
+                  } else {
+                      name.setJsDocNode(jsdocNode);
+                      elems.add(plainProperty(name, tt));
+                  }
                   break;
 
               case Token.RC:
@@ -3228,22 +3209,40 @@ public class Parser
                   break commaLoop;
 
               default:
-                  if (convertToName(tt)) {
-                      consumeToken();
-                      AstNode pname = createNameNode();
-                      pname.setJsDoc(jsdoc);
+                  AstNode pname = objliteralProperty();
+                  if (pname == null) {
+                      propertyName = null;
+                  } else {
+                      propertyName = ts.getString();
+                      pname.setJsDocNode(jsdocNode);
                       elems.add(plainProperty(pname, tt));
-                      break;
                   }
-                  reportError("msg.bad.prop");
                   break;
             }
 
-            if (this.inUseStrictDirective) {
-                if (propertyNames.contains(propertyName)) {
-                    addError("msg.dup.obj.lit.prop.strict", propertyName);
+            if (this.inUseStrictDirective && propertyName != null) {
+                switch (entryKind) {
+                case PROP_ENTRY:
+                    if (getterNames.contains(propertyName)
+                            || setterNames.contains(propertyName)) {
+                        addError("msg.dup.obj.lit.prop.strict", propertyName);
+                    }
+                    getterNames.add(propertyName);
+                    setterNames.add(propertyName);
+                    break;
+                case GET_ENTRY:
+                    if (getterNames.contains(propertyName)) {
+                        addError("msg.dup.obj.lit.prop.strict", propertyName);
+                    }
+                    getterNames.add(propertyName);
+                    break;
+                case SET_ENTRY:
+                    if (setterNames.contains(propertyName)) {
+                        addError("msg.dup.obj.lit.prop.strict", propertyName);
+                    }
+                    setterNames.add(propertyName);
+                    break;
                 }
-                propertyNames.add(propertyName);
             }
 
             // Eat any dangling jsdoc in the property.
@@ -3258,9 +3257,44 @@ public class Parser
 
         mustMatchToken(Token.RC, "msg.no.brace.prop");
         ObjectLiteral pn = new ObjectLiteral(pos, ts.tokenEnd - pos);
+        if (objJsdocNode != null) {
+            pn.setJsDocNode(objJsdocNode);
+        }
         pn.setElements(elems);
         pn.setLineno(lineno);
         return pn;
+    }
+
+    private AstNode objliteralProperty() throws IOException {
+        AstNode pname;
+        int tt = peekToken();
+        switch(tt) {
+          case Token.NAME:
+              pname = createNameNode();
+              break;
+
+          case Token.STRING:
+              pname = createStringLiteral();
+              break;
+
+          case Token.NUMBER:
+              pname = new NumberLiteral(
+                      ts.tokenBeg, ts.getString(), ts.getNumber());
+              break;
+
+          default:
+              if (compilerEnv.isReservedKeywordAsIdentifier()
+                      && TokenStream.isKeyword(ts.getString())) {
+                  // convert keyword to property name, e.g. ({if: 1})
+                  pname = createNameNode();
+                  break;
+              }
+              reportError("msg.bad.prop");
+              return null;
+        }
+
+        consumeToken();
+        return pname;
     }
 
     private ObjectProperty plainProperty(AstNode property, int ptt)
@@ -3386,20 +3420,12 @@ public class Parser
         }
     }
 
-    protected void setContainsEval() {
-        if (insideFunction()) {
-            ((FunctionNode)currentScriptOrFn).setContainsEval();
-        }
-    }
-
     private void checkCallRequiresActivation(AstNode pn) {
         if ((pn.getType() == Token.NAME
-                    && "eval".equals(((Name)pn).getIdentifier()))
-                || (pn.getType() == Token.GETPROP
-                    && "eval".equals(((PropertyGet)pn).getProperty().getIdentifier()))) {
+             && "eval".equals(((Name)pn).getIdentifier()))
+            || (pn.getType() == Token.GETPROP &&
+                "eval".equals(((PropertyGet)pn).getProperty().getIdentifier())))
             setRequiresActivation();
-            setContainsEval();
-        }
     }
 
     protected void setIsGenerator() {
@@ -3436,18 +3462,6 @@ public class Parser
         prevNameTokenStart = pos;
         prevNameTokenString = name;
         prevNameTokenLineno = lineno;
-    }
-
-    // Check whether token is a reserved keyword that is allowed as property id.
-    private boolean convertToName(int token) {
-        if (compilerEnv.isReservedKeywordAsIdentifier()) {
-            String conv = Token.keywordToName(token);
-            if (conv != null) {
-                saveNameTokenData(ts.tokenBeg, conv, ts.lineno);
-                return true;
-            }
-        }
-        return false;
     }
 
     /**

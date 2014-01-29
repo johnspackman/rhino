@@ -1,53 +1,15 @@
 /* -*- Mode: java; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
  *
- * ***** BEGIN LICENSE BLOCK *****
- * Version: MPL 1.1/GPL 2.0
- *
- * The contents of this file are subject to the Mozilla Public License Version
- * 1.1 (the "License"); you may not use this file except in compliance with
- * the License. You may obtain a copy of the License at
- * http://www.mozilla.org/MPL/
- *
- * Software distributed under the License is distributed on an "AS IS" basis,
- * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
- * for the specific language governing rights and limitations under the
- * License.
- *
- * The Original Code is Rhino code, released
- * May 6, 1998.
- *
- * The Initial Developer of the Original Code is
- * Netscape Communications Corporation.
- * Portions created by the Initial Developer are Copyright (C) 1997-1999
- * the Initial Developer. All Rights Reserved.
- *
- * Contributor(s):
- *   Norris Boyd
- *   Igor Bukanov
- *   Brendan Eich
- *   Matthias Radestock
- *
- * Alternatively, the contents of this file may be used under the terms of
- * the GNU General Public License Version 2 or later (the "GPL"), in which
- * case the provisions of the GPL are applicable instead of those above. If
- * you wish to allow use of your version of this file only under the terms of
- * the GPL and not to allow others to use your version of this file under the
- * MPL, indicate your decision by deleting the provisions above and replacing
- * them with the notice and other provisions required by the GPL. If you do
- * not delete the provisions above, a recipient may use your version of this
- * file under either the MPL or the GPL.
- *
- * ***** END LICENSE BLOCK ***** */
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 package org.mozilla.javascript.regexp;
 
 import java.io.Serializable;
-import java.util.HashMap;
-import java.util.Map;
 
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.Function;
-import org.mozilla.javascript.IdFunctionCall;
 import org.mozilla.javascript.IdFunctionObject;
 import org.mozilla.javascript.IdScriptableObject;
 import org.mozilla.javascript.Kit;
@@ -73,7 +35,7 @@ import org.mozilla.javascript.Undefined;
 
 
 
-public class NativeRegExp extends ScriptableObject implements Function, IdFunctionCall
+public class NativeRegExp extends IdScriptableObject implements Function
 {
     static final long serialVersionUID = 4965263491464903264L;
 
@@ -150,22 +112,21 @@ public class NativeRegExp extends ScriptableObject implements Function, IdFuncti
 
     public static void init(Context cx, Scriptable scope, boolean sealed)
     {
+
         NativeRegExp proto = new NativeRegExp();
         proto.re = compileRE(cx, "", null, false);
+        proto.activatePrototypeMap(MAX_PROTOTYPE_ID);
         proto.setParentScope(scope);
         proto.setPrototype(getObjectPrototype(scope));
+
         NativeRegExpCtor ctor = new NativeRegExpCtor();
         // Bug #324006: ECMA-262 15.10.6.1 says "The initial value of
         // RegExp.prototype.constructor is the builtin RegExp constructor."
         proto.defineProperty("constructor", ctor, ScriptableObject.DONTENUM);
-        ScriptRuntime.setFunctionProtoAndParent(ctor, scope);
-        ctor.setImmunePrototypeProperty(proto);
 
-        for (Methods method : Methods.values()) {
-            IdFunctionObject idfun = new IdFunctionObject(proto, method,
-                    0, method.name(), method.arity, scope);
-            idfun.addAsProperty(proto);
-        }
+        ScriptRuntime.setFunctionProtoAndParent(ctor, scope);
+
+        ctor.setImmunePrototypeProperty(proto);
 
         if (sealed) {
             proto.sealObject();
@@ -175,9 +136,9 @@ public class NativeRegExp extends ScriptableObject implements Function, IdFuncti
         defineProperty(scope, "RegExp", ctor, ScriptableObject.DONTENUM);
     }
 
-    NativeRegExp(Scriptable scope, Object regexpCompiled)
+    NativeRegExp(Scriptable scope, RECompiled regexpCompiled)
     {
-        this.re = (RECompiled)regexpCompiled;
+        this.re = regexpCompiled;
         this.lastIndex = 0;
         ScriptRuntime.setBuiltinProtoAndParent(this, scope, TopLevel.Builtins.RegExp);
     }
@@ -222,7 +183,7 @@ public class NativeRegExp extends ScriptableObject implements Function, IdFuncti
             this.lastIndex = thatObj.lastIndex;
             return this;
         }
-        String s = args.length == 0 ? "" : ScriptRuntime.toString(args[0]);
+        String s = args.length == 0 ? "" : escapeRegExp(args[0]);
         String global = args.length > 1 && args[1] != Undefined.instance
             ? ScriptRuntime.toString(args[1])
             : null;
@@ -234,7 +195,7 @@ public class NativeRegExp extends ScriptableObject implements Function, IdFuncti
     @Override
     public String toString()
     {
-        StringBuffer buf = new StringBuffer();
+        StringBuilder buf = new StringBuilder();
         buf.append('/');
         if (re.source.length != 0) {
             buf.append(re.source);
@@ -257,6 +218,30 @@ public class NativeRegExp extends ScriptableObject implements Function, IdFuncti
     private static RegExpImpl getImpl(Context cx)
     {
         return (RegExpImpl) ScriptRuntime.getRegExpProxy(cx);
+    }
+
+    private static String escapeRegExp(Object src) {
+        String s = ScriptRuntime.toString(src);
+        // Escape any naked slashes in regexp source, see bug #510265
+        StringBuilder sb = null; // instantiated only if necessary
+        int start = 0;
+        int slash = s.indexOf('/');
+        while (slash > -1) {
+            if (slash == start || s.charAt(slash - 1) != '\\') {
+                if (sb == null) {
+                    sb = new StringBuilder();
+                }
+                sb.append(s, start, slash);
+                sb.append("\\/");
+                start = slash + 1;
+            }
+            slash = s.indexOf('/', slash + 1);
+        }
+        if (sb != null) {
+            sb.append(s, start, s.length());
+            s = sb.toString();
+        }
+        return s;
     }
 
     private Object execSub(Context cx, Scriptable scopeObj,
@@ -1395,11 +1380,13 @@ public class NativeRegExp extends ScriptableObject implements Function, IdFuncti
     {
         if ((gData.cp + length) > end)
             return false;
-        if (input.regionMatches(gData.cp, gData.regexp.sourceString, matchChars, length)) {
-            gData.cp += length;
-            return true;
+        for (int i = 0; i < length; i++) {
+            if (gData.regexp.source[matchChars + i] != input.charAt(gData.cp + i)) {
+                return false;
+            }
         }
-        return false;
+        gData.cp += length;
+        return true;
     }
 
     private static boolean
@@ -1684,7 +1671,7 @@ public class NativeRegExp extends ScriptableObject implements Function, IdFuncti
             if (inRange) {
                 if ((gData.regexp.flags & JSREG_FOLD) != 0) {
                     assert(rangeStart <= thisCh);
-                    for (c = rangeStart; c <= thisCh; c++) {
+                    for (c = rangeStart; c <= thisCh;) {
                         addCharacterToCharSet(charSet, c);
                         char uch = upcase(c);
                         char dch = downcase(c);
@@ -1692,6 +1679,8 @@ public class NativeRegExp extends ScriptableObject implements Function, IdFuncti
                             addCharacterToCharSet(charSet, uch);
                         if (c != dch)
                             addCharacterToCharSet(charSet, dch);
+                        if (++c == 0)
+                            break; // overflow
                     }
                 } else {
                     addCharacterRangeToCharSet(charSet, rangeStart, thisCh);
@@ -2553,141 +2542,204 @@ public class NativeRegExp extends ScriptableObject implements Function, IdFuncti
         throw ScriptRuntime.constructError("SyntaxError", msg);
     }
 
+// #string_id_map#
+
+    private static final int
+        Id_lastIndex    = 1,
+        Id_source       = 2,
+        Id_global       = 3,
+        Id_ignoreCase   = 4,
+        Id_multiline    = 5,
+
+        MAX_INSTANCE_ID = 5;
+
     @Override
-    public int getAttributes(String id) {
-        Properties prop = properties.get(id);
-        if (prop == null) {
-            return super.getAttributes(id);
-        }
-        switch (prop) {
-            case lastIndex:
-                return DONTENUM | PERMANENT;
-            default:
-                return READONLY | DONTENUM | PERMANENT;
-        }
+    protected int getMaxInstanceId()
+    {
+        return MAX_INSTANCE_ID;
     }
 
     @Override
-    protected ScriptableObject getOwnPropertyDescriptor(Context cx, Object id) {
-        Properties prop = properties.get(id);
-        if (prop == null) {
-            return super.getOwnPropertyDescriptor(cx, id);
-        }
-        switch (prop) {
-            case lastIndex:
-                return buildDataDescriptor(getParentScope(),
-                        ScriptRuntime.wrapNumber(lastIndex),
-                        DONTENUM | PERMANENT);
-            default:
-                return buildDataDescriptor(getParentScope(),
-                        get((String)id, this),
-                        READONLY | DONTENUM | PERMANENT);
-        }
-    }
-
-    @Override
-    public boolean has(String name, Scriptable start) {
-        return super.has(name, start) || properties.containsKey(name);
-    }
-
-    @Override
-    public void put(String name, Scriptable start, Object value) {
-        Properties prop = properties.get(name);
-        if (prop == null) {
-            super.put(name, start, value);
-        } else {
-            if (prop == Properties.lastIndex) {
-                lastIndex = ScriptRuntime.toNumber(value);
+    protected int findInstanceIdInfo(String s)
+    {
+        int id;
+// #generated# Last update: 2007-05-09 08:16:24 EDT
+        L0: { id = 0; String X = null; int c;
+            int s_length = s.length();
+            if (s_length==6) {
+                c=s.charAt(0);
+                if (c=='g') { X="global";id=Id_global; }
+                else if (c=='s') { X="source";id=Id_source; }
             }
+            else if (s_length==9) {
+                c=s.charAt(0);
+                if (c=='l') { X="lastIndex";id=Id_lastIndex; }
+                else if (c=='m') { X="multiline";id=Id_multiline; }
+            }
+            else if (s_length==10) { X="ignoreCase";id=Id_ignoreCase; }
+            if (X!=null && X!=s && !X.equals(s)) id = 0;
+            break L0;
         }
+// #/generated#
+// #/string_id_map#
+
+        if (id == 0) return super.findInstanceIdInfo(s);
+
+        int attr;
+        switch (id) {
+          case Id_lastIndex:
+            attr = PERMANENT | DONTENUM;
+            break;
+          case Id_source:
+          case Id_global:
+          case Id_ignoreCase:
+          case Id_multiline:
+            attr = PERMANENT | READONLY | DONTENUM;
+            break;
+          default:
+            throw new IllegalStateException();
+        }
+        return instanceIdInfo(attr, id);
     }
 
     @Override
-    public Object get(String name, Scriptable start) {
-        Properties prop = properties.get(name);
-        if (prop == null) {
-            return super.get(name, start);
+    protected String getInstanceIdName(int id)
+    {
+        switch (id) {
+            case Id_lastIndex:  return "lastIndex";
+            case Id_source:     return "source";
+            case Id_global:     return "global";
+            case Id_ignoreCase: return "ignoreCase";
+            case Id_multiline:  return "multiline";
         }
-        switch (prop) {
-            case lastIndex:
-                return ScriptRuntime.wrapNumber(lastIndex);
-            case source:
-                return new String(re.source);
-            case global:
-                return ScriptRuntime.wrapBoolean((re.flags & JSREG_GLOB) != 0);
-            case ignoreCase:
-                return ScriptRuntime.wrapBoolean((re.flags & JSREG_FOLD) != 0);
-            case multiline:
-                return ScriptRuntime.wrapBoolean((re.flags & JSREG_MULTILINE) != 0);
-        }
-        throw new IllegalArgumentException(name); // won't happen
+        return super.getInstanceIdName(id);
     }
 
+    @Override
+    protected Object getInstanceIdValue(int id)
+    {
+        switch (id) {
+          case Id_lastIndex:
+            return ScriptRuntime.wrapNumber(lastIndex);
+          case Id_source:
+            return new String(re.source);
+          case Id_global:
+            return ScriptRuntime.wrapBoolean((re.flags & JSREG_GLOB) != 0);
+          case Id_ignoreCase:
+            return ScriptRuntime.wrapBoolean((re.flags & JSREG_FOLD) != 0);
+          case Id_multiline:
+            return ScriptRuntime.wrapBoolean((re.flags & JSREG_MULTILINE) != 0);
+        }
+        return super.getInstanceIdValue(id);
+    }
+
+    @Override
+    protected void setInstanceIdValue(int id, Object value)
+    {
+        switch (id) {
+          case Id_lastIndex:
+            lastIndex = ScriptRuntime.toNumber(value);
+            return;
+          case Id_source:
+          case Id_global:
+          case Id_ignoreCase:
+          case Id_multiline:
+            return;
+        }
+        super.setInstanceIdValue(id, value);
+    }
+
+    @Override
+    protected void initPrototypeId(int id)
+    {
+        String s;
+        int arity;
+        switch (id) {
+          case Id_compile:  arity=1; s="compile";  break;
+          case Id_toString: arity=0; s="toString"; break;
+          case Id_toSource: arity=0; s="toSource"; break;
+          case Id_exec:     arity=1; s="exec";     break;
+          case Id_test:     arity=1; s="test";     break;
+          case Id_prefix:   arity=1; s="prefix";   break;
+          default: throw new IllegalArgumentException(String.valueOf(id));
+        }
+        initPrototypeMethod(REGEXP_TAG, id, s, arity);
+    }
+
+    @Override
     public Object execIdCall(IdFunctionObject f, Context cx, Scriptable scope,
                              Scriptable thisObj, Object[] args)
     {
-        Object tag = f.getTag();
-        Methods method;
-
-        if (tag instanceof Methods) {
-            method = (Methods) tag;
-            switch (method) {
-                case compile:
-                    return realThis(thisObj, f).compile(cx, scope, args);
-
-                case toString:
-                case toSource:
-                    return realThis(thisObj, f).toString();
-
-                case exec:
-                    return realThis(thisObj, f).execSub(cx, scope, args, MATCH);
-
-                case test: {
-                    Object x = realThis(thisObj, f).execSub(cx, scope, args, TEST);
-                    return Boolean.TRUE.equals(x) ? Boolean.TRUE : Boolean.FALSE;
-                }
-
-                case prefix:
-                    return realThis(thisObj, f).execSub(cx, scope, args, PREFIX);
-            }
+        if (!f.hasTag(REGEXP_TAG)) {
+            return super.execIdCall(f, cx, scope, thisObj, args);
         }
-        throw new IllegalArgumentException(String.valueOf(tag));
+        int id = f.methodId();
+        switch (id) {
+          case Id_compile:
+            return realThis(thisObj, f).compile(cx, scope, args);
+
+          case Id_toString:
+          case Id_toSource:
+            return realThis(thisObj, f).toString();
+
+          case Id_exec:
+            return realThis(thisObj, f).execSub(cx, scope, args, MATCH);
+
+          case Id_test: {
+            Object x = realThis(thisObj, f).execSub(cx, scope, args, TEST);
+            return Boolean.TRUE.equals(x) ? Boolean.TRUE : Boolean.FALSE;
+          }
+
+          case Id_prefix:
+            return realThis(thisObj, f).execSub(cx, scope, args, PREFIX);
+        }
+        throw new IllegalArgumentException(String.valueOf(id));
     }
 
     private static NativeRegExp realThis(Scriptable thisObj, IdFunctionObject f)
     {
         if (!(thisObj instanceof NativeRegExp))
-            throw IdScriptableObject.incompatibleCallError(f);
+            throw incompatibleCallError(f);
         return (NativeRegExp)thisObj;
     }
 
-    enum Properties {
-        lastIndex,
-        source,
-        global,
-        ignoreCase,
-        multiline
-    }
-
-    static Map<String,Properties> properties = new HashMap<String,Properties>(6);
-    static {
-        for (Properties prop : Properties.values())
-            properties.put(prop.name(), prop);
-    }
-
-    enum Methods {
-        compile(1),
-        toString(0),
-        toSource(0),
-        exec(1),
-        test(1),
-        prefix(1);
-
-        private final int arity;
-        Methods(int arity) {
-            this.arity = arity;
+// #string_id_map#
+    @Override
+    protected int findPrototypeId(String s)
+    {
+        int id;
+// #generated# Last update: 2007-05-09 08:16:24 EDT
+        L0: { id = 0; String X = null; int c;
+            L: switch (s.length()) {
+            case 4: c=s.charAt(0);
+                if (c=='e') { X="exec";id=Id_exec; }
+                else if (c=='t') { X="test";id=Id_test; }
+                break L;
+            case 6: X="prefix";id=Id_prefix; break L;
+            case 7: X="compile";id=Id_compile; break L;
+            case 8: c=s.charAt(3);
+                if (c=='o') { X="toSource";id=Id_toSource; }
+                else if (c=='t') { X="toString";id=Id_toString; }
+                break L;
+            }
+            if (X!=null && X!=s && !X.equals(s)) id = 0;
+            break L0;
         }
+// #/generated#
+        return id;
     }
+
+    private static final int
+        Id_compile       = 1,
+        Id_toString      = 2,
+        Id_toSource      = 3,
+        Id_exec          = 4,
+        Id_test          = 5,
+        Id_prefix        = 6,
+
+        MAX_PROTOTYPE_ID = 6;
+
+// #/string_id_map#
 
     private RECompiled re;
     double lastIndex;          /* index after last match, for //g iterator */
@@ -2699,7 +2751,6 @@ class RECompiled implements Serializable
     static final long serialVersionUID = -6144956577595844213L;
 
     final char[] source;    /* locked source string, sans // */
-    final String sourceString;
     int parenCount;         /* number of parenthesized submatches */
     int flags;              /* flags  */
     byte[] program;         /* regular expression bytecode */
@@ -2708,20 +2759,7 @@ class RECompiled implements Serializable
     int anchorCh = -1;      /* if >= 0, then re starts with this literal char */
 
     RECompiled(String str) {
-        this.sourceString = str;
         this.source = str.toCharArray();
-    }
-
-    public int flags() {
-        return flags;
-    }
-
-    public String source() {
-        return sourceString;
-    }
-
-    public int parenCount() {
-        return parenCount;
     }
 }
 

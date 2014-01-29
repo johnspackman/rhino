@@ -1,42 +1,8 @@
 /* -*- Mode: java; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
  *
- * ***** BEGIN LICENSE BLOCK *****
- * Version: MPL 1.1/GPL 2.0
- *
- * The contents of this file are subject to the Mozilla Public License Version
- * 1.1 (the "License"); you may not use this file except in compliance with
- * the License. You may obtain a copy of the License at
- * http://www.mozilla.org/MPL/
- *
- * Software distributed under the License is distributed on an "AS IS" basis,
- * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
- * for the specific language governing rights and limitations under the
- * License.
- *
- * The Original Code is Rhino code, released
- * May 6, 1999.
- *
- * The Initial Developer of the Original Code is
- * Netscape Communications Corporation.
- * Portions created by the Initial Developer are Copyright (C) 1997-2000
- * the Initial Developer. All Rights Reserved.
- *
- * Contributor(s):
- *   Igor Bukanov
- *   Bob Jervis
- *   Roger Lawrence
- *
- * Alternatively, the contents of this file may be used under the terms of
- * the GNU General Public License Version 2 or later (the "GPL"), in which
- * case the provisions of the GPL are applicable instead of those above. If
- * you wish to allow use of your version of this file only under the terms of
- * the GPL and not to allow others to use your version of this file under the
- * MPL, indicate your decision by deleting the provisions above and replacing
- * them with the notice and other provisions required by the GPL. If you do
- * not delete the provisions above, a recipient may use your version of this
- * file under either the MPL or the GPL.
- *
- * ***** END LICENSE BLOCK ***** */
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 package org.mozilla.javascript;
 
@@ -101,7 +67,7 @@ final class InterpretedFunction extends NativeFunction implements Script
     {
         InterpretedFunction f;
         f = new InterpretedFunction(idata, staticSecurityDomain);
-        ScriptRuntime.setFunctionProtoAndParent(f, scope);
+        f.initScriptFunction(cx, scope);
         return f;
     }
 
@@ -113,9 +79,10 @@ final class InterpretedFunction extends NativeFunction implements Script
                                               int index)
     {
         InterpretedFunction f = new InterpretedFunction(parent, index);
-        ScriptRuntime.setFunctionProtoAndParent(f, scope);
+        f.initScriptFunction(cx, scope);
         return f;
     }
+
 
     @Override
     public String getFunctionName()
@@ -181,31 +148,31 @@ final class InterpretedFunction extends NativeFunction implements Script
     }
 
     @Override
-    public int getLanguageVersion()
+    protected int getLanguageVersion()
     {
         return idata.languageVersion;
     }
 
     @Override
-    public int getParamCount()
+    protected int getParamCount()
     {
         return idata.argCount;
     }
 
     @Override
-    public int getParamAndVarCount()
+    protected int getParamAndVarCount()
     {
         return idata.argNames.length;
     }
 
     @Override
-    public String getParamOrVarName(int index)
+    protected String getParamOrVarName(int index)
     {
         return idata.argNames[index];
     }
 
     @Override
-    public boolean getParamOrVarConst(int index)
+    protected boolean getParamOrVarConst(int index)
     {
         return idata.argIsConst[index];
     }
