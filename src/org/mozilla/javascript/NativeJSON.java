@@ -269,11 +269,12 @@ public final class NativeJSON extends IdScriptableObject
                                         new Object[] { key, value });
         }
 
-        if (value instanceof Scriptable) {
+        if (value instanceof Scriptable && hasProperty((Scriptable)value, "toJSON")) {
             Object toJSON = getProperty((Scriptable) value, "toJSON");
             if (toJSON instanceof Callable) {
                 value = callMethod(state.cx, (Scriptable) value, "toJSON",
                                    new Object[] { key });
+                return value;
             }
         }
 
