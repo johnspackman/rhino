@@ -31,5 +31,11 @@ public class JsonStringifyTest {
 		cx.evaluateString(scope, "JSON.stringify(myArray)", "[inline command]", 1, null);
     }
     
+    @Test
+    public void writeUnicodeLineSeps() throws Exception {
+		ScriptableObject.putProperty(scope, "myString", Context.javaToJS("Hello\u2028World\u2029", scope));
+		cx.evaluateString(scope, "JSON.stringify(myString)", "[inline command]", 1, null);
+    }
+    
     public enum MYENUM { ALPHA, BRAVO, CHARLIE };
 }

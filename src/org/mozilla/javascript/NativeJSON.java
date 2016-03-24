@@ -448,7 +448,7 @@ public final class NativeJSON extends IdScriptableObject
                     product.append("\\t");
                     break;
                 default:
-                    if (c < ' ') {
+                    if (c < ' ' || c == 0x2028 || c == 0x2029) {
                         product.append("\\u");
                         String hex = String.format("%04x", (int) c);
                         product.append(hex);
