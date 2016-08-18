@@ -43,7 +43,10 @@ public class JsonParser {
         src = json;
         Object value = readValue();
         consumeWhitespace();
-        if (pos < length) {
+        // Allow zero-byte (NUL) at end of string
+        if (pos == length - 1 && src.charAt(pos) == 0) {
+        	pos++;
+        } else if (pos < length) {
             throw new ParseException("Expected end of stream at char " + pos);
         }
         return value;

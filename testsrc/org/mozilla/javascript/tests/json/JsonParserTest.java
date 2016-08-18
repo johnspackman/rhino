@@ -37,6 +37,12 @@ public class JsonParserTest {
         parser.parseValue(" \u000b 1");
     }
 
+    @Test
+    public void shouldParseZeroByte() throws Exception {
+    	byte[] bytes = new byte[] { 0x7b, 0x22, 0x73, 0x75, 0x62, 0x6a, 0x65, 0x63, 0x74, 0x22, 0x3a, 0x22, (byte)0xc2, (byte)0xa3, 0x32, 0x22, 0x7d, 0xa, 0xa, 0x0 };
+    	String str = new String(bytes, "UTF8");
+    	parser.parseValue(str);
+    }
 
     @Test
     public void shouldParseJsonNull() throws Exception {

@@ -276,17 +276,18 @@ public final class NativeJSON extends IdScriptableObject
             value = getProperty(holder, ((Number) key).intValue());
         }
 
-        if (value instanceof Scriptable) {
+        if (state.replacer != null) {
+            value = state.replacer.call(state.cx, state.scope, holder,
+                                        new Object[] { key, value });
+        }
+
+        if (value instanceof Scriptable && hasProperty((Scriptable)value, "toJSON")) {
             Object toJSON = getProperty((Scriptable) value, "toJSON");
             if (toJSON instanceof Callable) {
                 value = callMethod(state.cx, (Scriptable) value, "toJSON",
                                    new Object[] { key });
+                return value;
             }
-        }
-
-        if (state.replacer != null) {
-            value = state.replacer.call(state.cx, state.scope, holder,
-                                        new Object[] { key, value });
         }
 
 
@@ -344,6 +345,8 @@ public final class NativeJSON extends IdScriptableObject
         if (state.stack.search(value) != -1) {
             throw ScriptRuntime.typeError0("msg.cyclic.value");
         }
+        if (state.stack.size() > 100)
+        	throw ScriptRuntime.typeError("Stack overflow in JSON");
         state.stack.push(value);
 
         String stepback = state.indent;
@@ -462,7 +465,7 @@ public final class NativeJSON extends IdScriptableObject
                     product.append("\\t");
                     break;
                 default:
-                    if (c < ' ') {
+                    if (c < ' ' || c == 0x2028 || c == 0x2029) {
                         product.append("\\u");
                         String hex = String.format("%04x", (int) c);
                         product.append(hex);
