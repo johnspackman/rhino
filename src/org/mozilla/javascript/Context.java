@@ -982,8 +982,8 @@ public class Context
         return reportRuntimeError(msg);
     }
 
-    static EvaluatorException reportRuntimeError1(String messageId,
-                                                  Object arg1)
+    public static EvaluatorException reportRuntimeError1(String messageId,
+                                                         Object arg1)
     {
         String msg = ScriptRuntime.getMessage1(messageId, arg1);
         return reportRuntimeError(msg);

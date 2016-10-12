@@ -21,6 +21,7 @@ public abstract class VMBridge
     {
         String[] classNames = {
             "org.mozilla.javascript.VMBridge_custom",
+            "org.mozilla.javascript.jdk18.VMBridge_jdk18",
             "org.mozilla.javascript.jdk15.VMBridge_jdk15",
             "org.mozilla.javascript.jdk13.VMBridge_jdk13",
             "org.mozilla.javascript.jdk11.VMBridge_jdk11",
@@ -145,5 +146,28 @@ public abstract class VMBridge
             return iterator;
         }
         return null;
+    }
+
+    public void checkOneMethodInterface(Class<?> cl) {
+        Method[] methods = cl.getMethods();
+        // Check if interface can be implemented by a single function.
+        // We allow this if the interface has only one method or multiple 
+        // methods with the same name (in which case they'd result in 
+        // the same function to be invoked anyway).
+        int length = methods.length;
+        if (length == 0) {
+            throw Context.reportRuntimeError1(
+                "msg.no.empty.interface.conversion", cl.getName());
+        }
+        if (length > 1) {
+            String methodName = methods[0].getName();
+            for (int i = 1; i < length; i++) {
+                if (!methodName.equals(methods[i].getName())) {
+                    throw Context.reportRuntimeError1(
+                            "msg.no.function.interface.conversion",
+                            cl.getName());
+                }
+            }
+        }
     }
 }

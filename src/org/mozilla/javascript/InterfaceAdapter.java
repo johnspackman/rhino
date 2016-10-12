@@ -34,27 +34,8 @@ public class InterfaceAdapter
         adapter = (InterfaceAdapter)cache.getInterfaceAdapter(cl);
         ContextFactory cf = cx.getFactory();
         if (adapter == null) {
-            Method[] methods = cl.getMethods();
             if ( object instanceof Callable) {
-                // Check if interface can be implemented by a single function.
-                // We allow this if the interface has only one method or multiple 
-                // methods with the same name (in which case they'd result in 
-                // the same function to be invoked anyway).
-                int length = methods.length;
-                if (length == 0) {
-                    throw Context.reportRuntimeError1(
-                        "msg.no.empty.interface.conversion", cl.getName());
-                }
-                if (length > 1) {
-                    String methodName = methods[0].getName();
-                    for (int i = 1; i < length; i++) {
-                        if (!methodName.equals(methods[i].getName())) {
-                            throw Context.reportRuntimeError1(
-                                    "msg.no.function.interface.conversion",
-                                    cl.getName());
-                        }
-                    }
-                }
+                VMBridge.instance.checkOneMethodInterface(cl);
             }
             adapter = new InterfaceAdapter(cf, cl);
             cache.cacheInterfaceAdapter(cl, adapter);
