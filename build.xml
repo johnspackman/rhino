@@ -94,7 +94,7 @@
     <property name="jarfile" location="${dist.dir}/${rhino.jar}"/>
     <java jar="${jarfile}"
           fork="true">
-      <arg line="-version 170"/>
+      <arg line="-version 180"/>
     </java>
   </target>
 
