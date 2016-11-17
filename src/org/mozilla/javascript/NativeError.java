@@ -65,10 +65,11 @@ final class NativeError extends IdScriptableObject
         obj.setParentScope(scope);
 
         int arglen = args.length;
+        String message = null;
         if (arglen >= 1) {
             if (args[0] != Undefined.instance) {
-                ScriptableObject.putProperty(obj, "message",
-                        ScriptRuntime.toString(args[0]));
+                message = ScriptRuntime.toString(args[0]);
+                ScriptableObject.putProperty(obj, "message", message);
             }
             if (arglen >= 2) {
                 ScriptableObject.putProperty(obj, "fileName", args[1]);
@@ -79,6 +80,8 @@ final class NativeError extends IdScriptableObject
                 }
             }
         }
+        final RhinoException rhinoException = ScriptRuntime.constructError("NativeError", message, 0);
+        obj.setStackProvider(rhinoException);
         return obj;
     }
 
