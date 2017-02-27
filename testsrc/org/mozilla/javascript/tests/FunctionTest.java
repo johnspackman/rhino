@@ -11,6 +11,7 @@ import junit.framework.TestCase;
 
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.ContextAction;
+import org.mozilla.javascript.Function;
 import org.mozilla.javascript.Scriptable;
 
 /**
@@ -36,6 +37,19 @@ public class FunctionTest extends TestCase {
                 final Object rep = cx.evaluateString(scope, source, "test.js",
                         0, null);
                 assertEquals(expected, rep);
+                return null;
+            }
+        };
+        Utils.runWithAllOptimizationLevels(action);
+    }
+    
+    public void testFunctionArgs() {
+        final ContextAction action = new ContextAction() {
+            public Object run(Context cx) {
+                final Scriptable scope = cx.initStandardObjects();
+                Function func = (Function) cx.evaluateString(scope, "(function() { return function(arg) { return 'hello'+arg; }; })()", "test.js", 0, null);
+                Object rep = func.call(cx, scope, scope, new Object[] { "world" });
+                assertEquals("helloworld", rep);
                 return null;
             }
         };
